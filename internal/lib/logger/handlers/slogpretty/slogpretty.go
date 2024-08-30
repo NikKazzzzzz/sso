@@ -1,3 +1,5 @@
+// // internal/lib/logger/handlers/slogpretty/slogpretty.go
+
 package slogpretty
 
 import (

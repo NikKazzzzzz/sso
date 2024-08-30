@@ -1,3 +1,5 @@
+// internal/domain/models/app.go
+
 package models
 
 type App struct {

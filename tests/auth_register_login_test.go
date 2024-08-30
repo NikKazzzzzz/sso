@@ -13,7 +13,7 @@ import (
 
 const (
 	emptyAppID = 0
-	appID      = 1
+	appID      = 2
 	appSecret  = "test-secret"
 
 	passDefaultLen = 10

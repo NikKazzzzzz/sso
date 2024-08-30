@@ -1,3 +1,5 @@
+// internal/lib/logger/handlers/slogdiscard/slogdiscard.go
+
 package slogdiscard
 
 import (

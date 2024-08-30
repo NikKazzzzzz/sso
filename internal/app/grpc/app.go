@@ -1,3 +1,5 @@
+// internal/app/grpc/app.go
+
 package grpcapp
 
 import (

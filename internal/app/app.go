@@ -1,9 +1,11 @@
+// internal/app/app.go
+
 package app
 
 import (
 	grpcapp "github.com/NikKazzzzzz/sso/internal/app/grpc"
 	"github.com/NikKazzzzzz/sso/internal/services/auth"
-	"github.com/NikKazzzzzz/sso/internal/storage/sqlite"
+	"github.com/NikKazzzzzz/sso/internal/storage/postgres"
 	"log/slog"
 	"time"
 )
@@ -13,12 +15,12 @@ type App struct {
 }
 
 func New(log *slog.Logger, grpcPort int, storagePath string, tokenTTL time.Duration) *App {
-	storage, err := sqlite.New(storagePath)
+	storage, err := postgres.New(storagePath)
 	if err != nil {
 		panic(err)
 	}
 
-	authService := auth.New(log, storage, storage, storage, tokenTTL)
+	authService := auth.New(log, storage, storage, storage, tokenTTL, storage)
 
 	grpcApp := grpcapp.New(log, authService, grpcPort)
 

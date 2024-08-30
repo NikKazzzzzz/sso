@@ -1,3 +1,5 @@
+// sso
+
 package main
 
 import (
@@ -24,7 +26,7 @@ func main() {
 
 	log.Info("starting application", slog.Any("config", cfg))
 
-	application := app.New(log, cfg.GRPC.Port, cfg.StoragePath, cfg.TokenTTL)
+	application := app.New(log, cfg.GRPC.Port, cfg.Database.DSN, cfg.TokenTTL)
 
 	go application.GRPCSrv.MustRun()
 

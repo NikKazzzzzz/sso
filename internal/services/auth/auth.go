@@ -1,3 +1,5 @@
+// internal/service/auth/auth.go
+
 package auth
 
 import (
@@ -19,10 +21,15 @@ type Auth struct {
 	usrProvider UserProvider
 	appProvider AppProvider
 	tokenTTl    time.Duration
+	tokenSaver  TokenSaver
 }
 
 type UserSaver interface {
 	SaveUser(ctx context.Context, email string, passHash []byte) (uid int64, err error)
+}
+
+type TokenSaver interface {
+	SaveToken(ctx context.Context, token string, userID int64, appID int, expiresAt time.Time) error
 }
 
 type UserProvider interface {
@@ -45,13 +52,14 @@ var (
 
 // New returns a new instance of the Auth service.
 func New(log *slog.Logger, userSaver UserSaver, userProvider UserProvider,
-	appProvider AppProvider, tokenTTl time.Duration) *Auth {
+	appProvider AppProvider, tokenTTl time.Duration, tokenSaver TokenSaver) *Auth {
 	return &Auth{
 		usrSaver:    userSaver,
 		usrProvider: userProvider,
 		log:         log,
 		appProvider: appProvider,
 		tokenTTl:    tokenTTl,
+		tokenSaver:  tokenSaver,
 	}
 }
 
@@ -99,6 +107,12 @@ func (a *Auth) Login(ctx context.Context, email string, password string, appID i
 	if err != nil {
 		a.log.Error("failed to generate token", sl.Err(err))
 
+		return "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	expiresAt := time.Now().Add(a.tokenTTl)
+	if err := a.tokenSaver.SaveToken(ctx, token, user.ID, appID, expiresAt); err != nil {
+		a.log.Error("failed to save token", sl.Err(err))
 		return "", fmt.Errorf("%s: %w", op, err)
 	}
 
@@ -217,7 +231,7 @@ func (a *Auth) ValidateToken(ctx context.Context, token string, appID int) (bool
 
 	userID := claims.UserID
 
-	log.Info("validating user", slog.Int64("user_id", userID))
+	log.Info("token validated", slog.Int64("user_id", userID))
 
 	return true, userID, nil
 }

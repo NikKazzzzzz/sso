@@ -1,3 +1,5 @@
+// internal/config
+
 package config
 
 import (
@@ -8,10 +10,15 @@ import (
 )
 
 type Config struct {
-	Env         string        `yaml:"env" env-default:"local"`
-	StoragePath string        `yaml:"storage_path" env-required:"true"`
-	TokenTTL    time.Duration `yaml:"token_ttl" env-required:"true"`
-	GRPC        GRPCConfig    `yaml:"grpc"`
+	Env      string         `yaml:"env" env-default:"local"`
+	Database DatabaseConfig `yaml:"database" env-required:"true"`
+	TokenTTL time.Duration  `yaml:"token_ttl" env-required:"true"`
+	GRPC     GRPCConfig     `yaml:"grpc"`
+}
+
+type DatabaseConfig struct {
+	Driver string `yaml:"driver" env-required:"true"`
+	DSN    string `yaml:"dsn" env-required:"true"`
 }
 
 type GRPCConfig struct {

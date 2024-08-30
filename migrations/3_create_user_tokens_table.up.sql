@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS user_tokens
+(
+    token VARCHAR(255) PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    app_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL
+);

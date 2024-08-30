@@ -1,3 +1,5 @@
+// internal/lib/jwt/jwt.go
+
 package jwt
 
 import (
@@ -13,14 +15,14 @@ type Claims struct {
 }
 
 func NewToken(user models.User, app models.App, duration time.Duration) (string, error) {
-	token := jwt.New(jwt.SigningMethodHS256)
+	claims := Claims{
+		UserID: user.ID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
+		},
+	}
 
-	claims := token.Claims.(jwt.MapClaims)
-	claims["uid"] = user.ID
-	claims["email"] = user.Email
-	claims["exp"] = time.Now().Add(duration).Unix()
-	claims["app_id"] = app.ID
-
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString([]byte(app.Secret))
 	if err != nil {
 		return "", err
