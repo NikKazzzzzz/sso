@@ -10,6 +10,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"time"
 )
 
 type Auth interface {
@@ -18,6 +20,7 @@ type Auth interface {
 	IsAdmin(ctx context.Context, userID int64) (bool, error)
 	Logout(ctx context.Context, token string) error
 	ValidateToken(ctx context.Context, token string, appID int) (bool, int64, error)
+	RefreshToken(ctx context.Context, oldToken string, appID int) (newToken string, expiresAt time.Time, err error)
 }
 
 type serverAPI struct {
@@ -124,6 +127,27 @@ func (s *serverAPI) IsAdmin(ctx context.Context, req *ssov1.IsAdminRequest) (*ss
 
 	return &ssov1.IsAdminResponse{
 		IsAdmin: isAdmin,
+	}, nil
+}
+
+func (s *serverAPI) RefreshToken(ctx context.Context, req *ssov1.RefreshTokenRequest) (*ssov1.RefreshTokenResponse, error) {
+	if req.GetOldToken() == "" {
+		return nil, status.Error(codes.InvalidArgument, "old token is required")
+	}
+
+	newToken, expiresAt, err := s.auth.RefreshToken(ctx, req.GetOldToken(), int(req.GetAppId()))
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidToken) {
+			return nil, status.Error(codes.Unauthenticated, "invalid old token")
+		}
+		return nil, status.Error(codes.Internal, "failed to refresh token")
+	}
+
+	timestamp := timestamppb.New(expiresAt)
+
+	return &ssov1.RefreshTokenResponse{
+		NewToken:  newToken,
+		ExpiresAt: timestamp,
 	}, nil
 }
 

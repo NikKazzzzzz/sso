@@ -30,10 +30,13 @@ type UserSaver interface {
 
 type TokenSaver interface {
 	SaveToken(ctx context.Context, token string, userID int64, appID int, expiresAt time.Time) error
+	GetTokenByUser(ctx context.Context, userID int64, appID int) (string, error)
+	RefreshToken(ctx context.Context, token string, userID int64, expiresAt time.Time) error
 }
 
 type UserProvider interface {
 	User(ctx context.Context, email string) (models.User, error)
+	UserByID(ctx context.Context, userID int64) (models.User, error)
 	IsAdmin(ctx context.Context, userID int64) (bool, error)
 	Logout(ctx context.Context, token string) error
 }
@@ -77,25 +80,24 @@ func (a *Auth) Login(ctx context.Context, email string, password string, appID i
 
 	log.Info("attempting to login user")
 
+	// Получаем пользователя
 	user, err := a.usrProvider.User(ctx, email)
 	if err != nil {
 		if errors.Is(err, storage.ErrUserNotFound) {
 			a.log.Warn("user not found")
-
 			return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 		}
-
 		a.log.Error("failed to get user", sl.Err(err))
-
 		return "", fmt.Errorf("%s: %w", op, err)
 	}
 
+	// Проверяем пароль
 	if err := bcrypt.CompareHashAndPassword(user.PassHash, []byte(password)); err != nil {
 		a.log.Info("invalid credentials", sl.Err(err))
-
 		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 	}
 
+	// Получаем информацию об приложении
 	app, err := a.appProvider.App(ctx, appID)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", op, err)
@@ -103,14 +105,48 @@ func (a *Auth) Login(ctx context.Context, email string, password string, appID i
 
 	log.Info("user logged in successfully")
 
+	// Проверяем наличие существующего токена
+	existingToken, err := a.tokenSaver.GetTokenByUser(ctx, user.ID, appID)
+	if err != nil {
+		if errors.Is(err, storage.TokenNotFound) {
+			log.Info("no token found for user", slog.Int64("user_id", user.ID), slog.Int("app_id", appID))
+		} else {
+			a.log.Error("failed to get existing token", sl.Err(err))
+			return "", fmt.Errorf("%s: %w", op, err)
+		}
+	}
+
+	// Если токен существует, проверяем его действительность
+	if existingToken != "" {
+		valid, _, err := a.ValidateToken(ctx, existingToken, appID)
+		if err == nil && valid {
+			// Если токен действителен, просто возвращаем его
+			a.log.Info("existing token found and valid, returning it")
+			return existingToken, nil
+		}
+
+		// Если токен истек или недействителен, создаем новый
+		a.log.Info("existing token found but invalid or expired, creating a new token")
+		token, err := jwt.NewToken(user, app, a.tokenTTl)
+		if err != nil {
+			a.log.Error("failed to generate new token", sl.Err(err))
+			return "", fmt.Errorf("%s: %w", op, err)
+		}
+		expiresAt := time.Now().UTC().Add(a.tokenTTl)
+		if err := a.tokenSaver.SaveToken(ctx, token, user.ID, appID, expiresAt); err != nil {
+			a.log.Error("failed to save token", sl.Err(err))
+			return "", fmt.Errorf("%s: %w", op, err)
+		}
+		return token, nil
+	}
+
+	// Если токен не найден, создаем новый
 	token, err := jwt.NewToken(user, app, a.tokenTTl)
 	if err != nil {
 		a.log.Error("failed to generate token", sl.Err(err))
-
 		return "", fmt.Errorf("%s: %w", op, err)
 	}
-
-	expiresAt := time.Now().Add(a.tokenTTl)
+	expiresAt := time.Now().UTC().Add(a.tokenTTl)
 	if err := a.tokenSaver.SaveToken(ctx, token, user.ID, appID, expiresAt); err != nil {
 		a.log.Error("failed to save token", sl.Err(err))
 		return "", fmt.Errorf("%s: %w", op, err)
@@ -225,8 +261,18 @@ func (a *Auth) ValidateToken(ctx context.Context, token string, appID int) (bool
 
 	claims, err := jwt.ParseToken(token, app.Secret) // Передаем оба аргумента
 	if err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			// Токен истек, создаем новый
+			newToken, _, refreshErr := a.RefreshToken(ctx, token, appID)
+			if refreshErr != nil {
+				log.Error("failed to refresh token", sl.Err(refreshErr))
+				return false, 0, fmt.Errorf("%s: %w", op, ErrInvalidToken)
+			}
+			log.Info("token refreshed successfully", slog.String("new_token", newToken))
+			return true, claims.UserID, nil
+		}
 		log.Error("failed to parse token", sl.Err(err))
-		return false, 0, nil
+		return false, 0, fmt.Errorf("%s: %w", op, ErrInvalidToken)
 	}
 
 	userID := claims.UserID
@@ -234,4 +280,54 @@ func (a *Auth) ValidateToken(ctx context.Context, token string, appID int) (bool
 	log.Info("token validated", slog.Int64("user_id", userID))
 
 	return true, userID, nil
+}
+
+func (a *Auth) RefreshToken(ctx context.Context, oldToken string, appID int) (newToken string, expiresAt time.Time, err error) {
+	const op = "Auth.RefreshToken"
+
+	log := a.log.With(
+		slog.String("op", op),
+		slog.String("oldToken", oldToken),
+		slog.Int("app_id", appID),
+	)
+
+	log.Info("refreshing token")
+
+	app, err := a.appProvider.App(ctx, appID)
+	if err != nil {
+		log.Error("failed to get app", sl.Err(err))
+		return "", time.Time{}, fmt.Errorf("%s: %w", op, err)
+	}
+
+	claims, err := jwt.ParseToken(oldToken, app.Secret)
+	if err != nil {
+		log.Error("failed to parse old token", sl.Err(err))
+		return "", time.Time{}, fmt.Errorf("%s: %w", op, ErrInvalidToken)
+	}
+
+	userID := claims.UserID
+
+	user, err := a.usrProvider.UserByID(ctx, userID)
+	if err != nil {
+		log.Error("failed to get user", sl.Err(err))
+		return "", time.Time{}, fmt.Errorf("%s: %w", op, err)
+	}
+
+	newToken, err = jwt.NewToken(user, app, a.tokenTTl)
+	if err != nil {
+		log.Error("failed to generate token", sl.Err(err))
+		return "", time.Time{}, fmt.Errorf("%s: %w", op, err)
+	}
+
+	expiresAt = time.Now().UTC().Add(a.tokenTTl)
+
+	err = a.tokenSaver.SaveToken(ctx, newToken, userID, appID, expiresAt)
+	if err != nil {
+		log.Error("failed to save new token", sl.Err(err))
+		return "", time.Time{}, fmt.Errorf("%s: %w", op, err)
+	}
+
+	log.Info("token refreshed successfully", slog.String("new_token", newToken), slog.Time("expires_at", expiresAt))
+
+	return newToken, expiresAt, nil
 }

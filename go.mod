@@ -3,13 +3,13 @@ module github.com/NikKazzzzzz/sso
 go 1.22.4
 
 require (
-	github.com/NikKazzzzzz/protos v0.0.3
+	github.com/NikKazzzzzz/protos v0.0.5
 	github.com/brianvoe/gofakeit/v6 v6.28.0
 	github.com/fatih/color v1.17.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/golang-migrate/migrate/v4 v4.17.1
 	github.com/ilyakaznacheev/cleanenv v1.5.0
-	github.com/mattn/go-sqlite3 v1.14.22
+	github.com/lib/pq v1.10.9
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/crypto v0.25.0
 	google.golang.org/grpc v1.65.0
@@ -21,7 +21,6 @@ require (
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
-	github.com/lib/pq v1.10.9 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

@@ -4,6 +4,7 @@ package jwt
 
 import (
 	"errors"
+	"fmt"
 	"github.com/NikKazzzzzz/sso/internal/domain/models"
 	"github.com/golang-jwt/jwt/v5"
 	"time"
@@ -14,11 +15,14 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+var ErrTokenExpired = errors.New("token is expired")
+
 func NewToken(user models.User, app models.App, duration time.Duration) (string, error) {
+	expirationTime := time.Now().Add(duration)
 	claims := Claims{
 		UserID: user.ID,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
 		},
 	}
 
@@ -40,6 +44,7 @@ func ParseToken(tokenString string, secret string) (*Claims, error) {
 	}
 
 	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+		fmt.Printf("Token expires at: %s\n", claims.ExpiresAt.Time)
 		return claims, nil
 	}
 

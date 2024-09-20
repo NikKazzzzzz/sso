@@ -8,17 +8,20 @@ import (
 	"errors"
 	"fmt"
 	"github.com/NikKazzzzzz/sso/internal/domain/models"
+	"github.com/NikKazzzzzz/sso/internal/lib/logger/sl"
 	"github.com/NikKazzzzzz/sso/internal/storage"
 	"github.com/lib/pq"
+	"log/slog"
 	"time"
 )
 
 type Storage struct {
-	db *sql.DB
+	db  *sql.DB
+	log *slog.Logger
 }
 
 // New creates a new instance of the SQLite storage.
-func New(connectionString string) (*Storage, error) {
+func New(connectionString string, log *slog.Logger) (*Storage, error) {
 	const op = "storage.postgres.New"
 
 	db, err := sql.Open("postgres", connectionString)
@@ -30,7 +33,7 @@ func New(connectionString string) (*Storage, error) {
 		return nil, fmt.Errorf("%s: failed to cnnect to database: %w", op, err)
 	}
 
-	return &Storage{db: db}, nil
+	return &Storage{db: db, log: log}, nil
 }
 
 func (s *Storage) SaveUser(ctx context.Context, email string, passHash []byte) (int64, error) {
@@ -176,4 +179,71 @@ func (s *Storage) IsTokenValid(ctx context.Context, token string) (bool, error) 
 	}
 
 	return time.Now().Before(expiresAt), nil
+}
+
+func (s *Storage) GetTokenByUser(ctx context.Context, userID int64, appID int) (string, error) {
+	const op = "storage.postgres.GetTokenByUser"
+
+	stmt, err := s.db.Prepare("SELECT token FROM user_tokens WHERE user_id = $1 AND app_id = $2")
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	var token string
+	err = stmt.QueryRowContext(ctx, userID, appID).Scan(&token)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			if s.log != nil {
+				s.log.Info("No token found for user", slog.Int64("user_id", userID), slog.Int("app_id", appID))
+			}
+			return "", storage.TokenNotFound
+		}
+		if s.log != nil {
+			s.log.Error("Failed to get token", sl.Err(err))
+		}
+		return "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	if s.log != nil {
+		s.log.Info("Token retrieved", slog.String("token", token))
+	}
+	return token, nil
+}
+
+func (s *Storage) RefreshToken(ctx context.Context, token string, userID int64, expiresAT time.Time) error {
+	const op = "storage.postgres.UpdateToken"
+
+	stmt, err := s.db.Prepare("UPDATE user_tokens SET expires_at = $1 WHERE token = $2")
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	_, err = stmt.ExecContext(ctx, expiresAT, token)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	return nil
+}
+
+func (s *Storage) UserByID(ctx context.Context, userID int64) (models.User, error) {
+	const op = "storage.postgres.UserByID"
+
+	stmt, err := s.db.Prepare("SELECT id, email, pass_hash FROM users WHERE id = $1")
+	if err != nil {
+		return models.User{}, fmt.Errorf("%s: %w", op, err)
+	}
+
+	row := stmt.QueryRowContext(ctx, userID)
+
+	var user models.User
+	err = row.Scan(&user.ID, &user.Email, &user.PassHash)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return models.User{}, fmt.Errorf("%s: %w", op, storage.ErrUserNotFound)
+		}
+		return models.User{}, fmt.Errorf("%s: %w", op, err)
+	}
+
+	return user, nil
 }

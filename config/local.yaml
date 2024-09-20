@@ -2,7 +2,7 @@ env: "local"
 database:
   driver: "postgres"
   dsn: "postgres://nikitakazunin:1213@localhost:5432/sso_db?sslmode=disable"
-token_ttl: 1h
+token_ttl: 30s
 grpc:
   port: 44044
   timeout: 10h
